@@ -51,11 +51,10 @@ _Make the core product more powerful_
 ## Phase 3 · Integrations
 _Connect to tools businesses already use_
 
-### QuickBooks Integration ⭐
-- [ ] OAuth with QuickBooks Online
-- [ ] Sync approved expenses directly to QuickBooks as transactions
-- [ ] Map GeoExpense categories → QuickBooks chart of accounts
-- [ ] Two-way sync — changes in QuickBooks reflect back
+### Accounting Export
+- [ ] Export approved expenses as CSV, ready to import into any accounting tool
+- [ ] PDF expense report with company logo, date range, totals by category
+- [ ] Generate IRS-ready mileage / expense summary at tax time
 
 ### Slack / Email Notifications
 - [ ] Notify manager in Slack when expense submitted
@@ -122,12 +121,12 @@ _Small, high-impact, no dependencies_
 
 ---
 
-## Priority Order for Interview Demo
+## What to Build Next
 
-If you need to show growth before the interview, do these in order:
+Highest impact in order:
 
-1. **Google OAuth** — most recognizable, shows you know auth
-2. **Receipt upload + AI extraction** — the most "wow" moment
-3. **QuickBooks sync** — directly relevant to Intuit
-4. **Export to PDF** — immediately useful, simple to build
-5. **Approval workflow** — shows you think about teams, not just individuals
+1. **Google OAuth** — removes the biggest friction for new users
+2. **Receipt upload + AI extraction** — the core "wow" feature
+3. **Approval workflow** — unlocks the team use case
+4. **Accounting export** — makes the product immediately useful at tax time
+5. **Bank card feed** — closes the loop on manual entry entirely
