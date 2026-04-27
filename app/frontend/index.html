@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GeoExpense — AI Business Expense Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <div id="logo">
+          <span id="logo-icon">📍</span>
+          <div>
+            <h1>GeoExpense</h1>
+            <p>AI-Powered Expense Tracker</p>
+          </div>
+        </div>
+        <div id="ai-badge">✨ AI Powered</div>
+      </div>
+
+      <div id="summary-cards">
+        <div class="card card-total">
+          <div class="card-label">Total Expenses</div>
+          <div class="card-value" id="total-amount">$0</div>
+          <div class="card-sub" id="expense-count">0 transactions</div>
+        </div>
+        <div class="card card-deductible">
+          <div class="card-label">Tax Deductible</div>
+          <div class="card-value" id="deductible-amount">$0</div>
+          <div class="card-sub" id="savings-amount">Est. $0 savings</div>
+        </div>
+      </div>
+
+      <div id="category-section">
+        <h3>By Category</h3>
+        <div id="category-list"></div>
+      </div>
+
+      <div id="expense-list-section">
+        <h3>Recent Expenses</h3>
+        <div id="expense-list"></div>
+      </div>
+    </aside>
+
+    <!-- Map area -->
+    <div id="map-wrap">
+      <!-- Search bar -->
+      <div id="search-container">
+        <div id="search-box">
+          <span id="search-icon">🔍</span>
+          <input
+            id="search-input"
+            type="text"
+            placeholder="Search for a place…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="search-clear" class="hidden" onclick="clearSearch()">✕</button>
+        </div>
+        <div id="search-results" class="hidden"></div>
+      </div>
+
+      <div id="map"></div>
+      <button id="layer-toggle" onclick="toggleLayer()">🛰 Satellite</button>
+      <div id="map-hint-bar">📍 Click anywhere on the map to add an expense</div>
+    </div>
+  </div>
+
+  <!-- Add Expense Modal -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div id="modal-header">
+        <div>
+          <h2>Add Expense</h2>
+          <div id="modal-location">
+            <span>📍</span>
+            <span id="modal-address">Detecting location…</span>
+          </div>
+        </div>
+        <button id="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <p id="modal-subtitle">Claude AI will automatically categorize and check tax deductibility.</p>
+      <form id="expense-form" onsubmit="submitExpense(event)">
+        <div class="form-group">
+          <label>Title</label>
+          <input type="text" id="f-title" placeholder="e.g. Team lunch with product team" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Amount ($)</label>
+            <input type="number" id="f-amount" placeholder="0.00" step="0.01" min="0" required />
+          </div>
+          <div class="form-group">
+            <label>Vendor / Merchant</label>
+            <input type="text" id="f-vendor" placeholder="e.g. Starbucks" required />
+          </div>
+        </div>
+        <input type="hidden" id="f-lat" />
+        <input type="hidden" id="f-lng" />
+        <input type="hidden" id="f-city" />
+        <div id="form-actions">
+          <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
+          <button type="submit" class="btn-primary" id="submit-btn">
+            <span id="submit-text">✨ Add with AI</span>
+            <span id="submit-spinner" class="hidden">Analyzing…</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
