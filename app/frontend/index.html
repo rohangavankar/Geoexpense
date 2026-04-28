@@ -5,23 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>GeoExpense — AI Business Expense Tracker</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div id="app">
     <!-- Sidebar -->
     <aside id="sidebar">
+      <!-- Header -->
       <div id="sidebar-header">
         <div id="logo">
           <span id="logo-icon">📍</span>
           <div>
             <h1>GeoExpense</h1>
-            <p>AI-Powered Expense Tracker</p>
+            <p id="company-name"></p>
           </div>
         </div>
-        <div id="ai-badge">✨ AI Powered</div>
+        <!-- User menu -->
+        <div id="user-menu-wrap">
+          <button id="user-menu-btn" onclick="toggleUserMenu()">
+            <span id="user-name"></span> ▾
+          </button>
+          <div id="user-dropdown" class="hidden">
+            <button onclick="copyInviteLink()">👥 Invite Member</button>
+            <button onclick="exportCSV()">📥 Export CSV</button>
+            <hr />
+            <button onclick="Auth.logout()">Sign Out</button>
+          </div>
+        </div>
       </div>
 
+      <!-- Summary cards -->
       <div id="summary-cards">
         <div class="card card-total">
           <div class="card-label">Total Expenses</div>
@@ -35,11 +50,33 @@
         </div>
       </div>
 
+      <!-- Date filters -->
+      <div id="filter-section">
+        <h3>Filter by Date</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label>From</label>
+            <input type="date" id="filter-from" />
+          </div>
+          <div class="form-group">
+            <label>To</label>
+            <input type="date" id="filter-to" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Category breakdown -->
       <div id="category-section">
         <h3>By Category</h3>
         <div id="category-list"></div>
       </div>
 
+      <!-- Pending approval (admins only) -->
+      <div id="pending-section" class="hidden">
+        <h3>Pending Approval <span id="pending-badge" class="hidden badge-pending">0</span></h3>
+      </div>
+
+      <!-- Expense list -->
       <div id="expense-list-section">
         <h3>Recent Expenses</h3>
         <div id="expense-list"></div>
@@ -48,17 +85,10 @@
 
     <!-- Map area -->
     <div id="map-wrap">
-      <!-- Search bar -->
       <div id="search-container">
         <div id="search-box">
           <span id="search-icon">🔍</span>
-          <input
-            id="search-input"
-            type="text"
-            placeholder="Search for a place…"
-            autocomplete="off"
-            spellcheck="false"
-          />
+          <input id="search-input" type="text" placeholder="Search for a place…" autocomplete="off" spellcheck="false" />
           <button id="search-clear" class="hidden" onclick="clearSearch()">✕</button>
         </div>
         <div id="search-results" class="hidden"></div>
@@ -66,24 +96,37 @@
 
       <div id="map"></div>
       <button id="layer-toggle" onclick="toggleLayer()">🛰 Satellite</button>
-      <div id="map-hint-bar">📍 Click anywhere on the map to add an expense</div>
+      <div id="map-hint-bar">📍 Click map to add expense · Press <kbd>N</kbd> at map center</div>
     </div>
   </div>
 
-  <!-- Add Expense Modal -->
+  <!-- Add / Edit Expense Modal -->
   <div id="modal-overlay" class="hidden">
     <div id="modal">
       <div id="modal-header">
         <div>
-          <h2>Add Expense</h2>
+          <h2 id="modal-title-text">Add Expense</h2>
           <div id="modal-location">
             <span>📍</span>
-            <span id="modal-address">Detecting location…</span>
+            <span id="modal-address">Select a location on the map</span>
           </div>
         </div>
         <button id="modal-close" onclick="closeModal()">✕</button>
       </div>
       <p id="modal-subtitle">Claude AI will automatically categorize and check tax deductibility.</p>
+
+      <!-- Receipt upload -->
+      <div id="receipt-upload-row">
+        <button type="button" id="receipt-upload-btn" onclick="document.getElementById('receipt-file').click()">
+          📎 Upload Receipt
+        </button>
+        <input type="file" id="receipt-file" accept="image/*" class="hidden" onchange="handleReceiptUpload(this)" />
+        <div id="receipt-preview" class="hidden">
+          <img id="receipt-preview-img" alt="Receipt" />
+        </div>
+      </div>
+      <input type="hidden" id="f-receipt-url" />
+
       <form id="expense-form" onsubmit="submitExpense(event)">
         <div class="form-group">
           <label>Title</label>
@@ -114,6 +157,8 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script src="/static/auth.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>
