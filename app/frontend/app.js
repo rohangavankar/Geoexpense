@@ -69,10 +69,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function renderUserMenu() {
   if (!currentUser) return;
-  document.getElementById('user-name').textContent = currentUser.name;
-  document.getElementById('company-name').textContent = currentUser.company_name || '';
   const isAdmin = ['owner', 'admin'].includes(currentUser.role);
-  document.getElementById('pending-section').classList.toggle('hidden', !isAdmin);
+  const pendingSection = document.getElementById('pending-section');
+  if (pendingSection) pendingSection.classList.toggle('hidden', !isAdmin);
 }
 
 // ── Map ───────────────────────────────────────────────────────────────────────

@@ -1,5 +1,8 @@
 // Shared navigation — injected into every page
 const Nav = (() => {
+  const _e = s => (s == null ? '' : String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'));
+
   function init(activePage) {
     const user = Auth.getUser();
     if (!user) return;
@@ -14,7 +17,7 @@ const Nav = (() => {
         <span>📍</span>
         <div>
           <div class="nav-brand-name">GeoExpense</div>
-          <div class="nav-brand-company">${esc(user.company_name || '')}</div>
+          <div class="nav-brand-company">${_e(user.company_name || '')}</div>
         </div>
       </div>
       <div class="nav-links">
@@ -39,9 +42,3 @@ const Nav = (() => {
 
   return { init };
 })();
-
-function esc(s) {
-  return (s == null ? '' : String(s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
-}

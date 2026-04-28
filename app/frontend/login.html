@@ -85,6 +85,22 @@
       document.getElementById('company-group').classList.add('hidden');
       document.getElementById('invite-notice').classList.remove('hidden');
       showTab('signup');
+
+      // Fetch company name to show in the notice
+      fetch(`/api/auth/invite/${invite}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data) {
+            document.getElementById('invite-notice').innerHTML =
+              `🎉 You've been invited to join <strong>${data.company_name}</strong> as ${data.role}`;
+          } else {
+            document.getElementById('invite-notice').innerHTML =
+              '⚠️ This invite link is invalid or has expired.';
+            document.getElementById('invite-notice').style.background = '#fee2e2';
+            document.getElementById('invite-notice').style.color = '#991b1b';
+          }
+        })
+        .catch(() => {});
     }
 
     function showTab(tab) {

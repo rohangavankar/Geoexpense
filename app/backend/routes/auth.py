@@ -75,6 +75,20 @@ def _token_response(user: User) -> dict:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
+@router.get("/invite/{token}")
+def get_invite(token: str, db: Session = Depends(get_db)):
+    invite = db.query(InviteToken).filter(
+        InviteToken.token == token,
+        InviteToken.used == False,
+    ).first()
+    if not invite:
+        raise HTTPException(404, "Invalid or expired invite link")
+    if invite.expires_at and invite.expires_at < datetime.utcnow():
+        raise HTTPException(400, "Invite link has expired")
+    company = db.query(Company).filter(Company.id == invite.company_id).first()
+    return {"company_name": company.name if company else "Unknown", "role": invite.role}
+
+
 @router.post("/register")
 def register(body: RegisterBody, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():
