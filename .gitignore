@@ -10,3 +10,8 @@ dist/
 build/
 .DS_Store
 deploy_log.json
+app/uploads/*.jpg
+app/uploads/*.jpeg
+app/uploads/*.png
+app/uploads/*.webp
+app/uploads/*.gif
