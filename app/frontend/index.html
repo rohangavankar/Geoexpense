@@ -10,30 +10,14 @@
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+  <div class="app-shell">
+  <nav id="nav"></nav>
   <div id="app">
     <!-- Sidebar -->
     <aside id="sidebar">
-      <!-- Header -->
       <div id="sidebar-header">
-        <div id="logo">
-          <span id="logo-icon">📍</span>
-          <div>
-            <h1>GeoExpense</h1>
-            <p id="company-name"></p>
-          </div>
-        </div>
-        <!-- User menu -->
-        <div id="user-menu-wrap">
-          <button id="user-menu-btn" onclick="toggleUserMenu()">
-            <span id="user-name"></span> ▾
-          </button>
-          <div id="user-dropdown" class="hidden">
-            <button onclick="copyInviteLink()">👥 Invite Member</button>
-            <button onclick="exportCSV()">📥 Export CSV</button>
-            <hr />
-            <button onclick="Auth.logout()">Sign Out</button>
-          </div>
-        </div>
+        <button class="sidebar-action-btn" onclick="copyInviteLink()">👥 Invite</button>
+        <button class="sidebar-action-btn" onclick="exportCSV()">📥 CSV</button>
       </div>
 
       <!-- Summary cards -->
@@ -96,8 +80,11 @@
 
       <div id="map"></div>
       <button id="layer-toggle" onclick="toggleLayer()">🛰 Satellite</button>
+      <label id="scan-receipt-fab" for="fab-receipt-file" title="Scan a receipt">📷</label>
+      <input type="file" id="fab-receipt-file" accept="image/*" class="hidden" onchange="handleFabReceipt(this)" />
       <div id="map-hint-bar">📍 Click map to add expense · Press <kbd>N</kbd> at map center</div>
     </div>
+  </div>
   </div>
 
   <!-- Add / Edit Expense Modal -->
@@ -106,19 +93,13 @@
       <div id="modal-header">
         <div>
           <h2 id="modal-title-text">Add Expense</h2>
-          <div id="modal-location">
-            <span>📍</span>
-            <span id="modal-address">Select a location on the map</span>
-          </div>
         </div>
         <button id="modal-close" onclick="closeModal()">✕</button>
       </div>
-      <p id="modal-subtitle">Claude AI will automatically categorize and check tax deductibility.</p>
-
       <!-- Receipt upload -->
       <div id="receipt-upload-row">
         <button type="button" id="receipt-upload-btn" onclick="document.getElementById('receipt-file').click()">
-          📎 Upload Receipt
+          📷 Scan Receipt
         </button>
         <input type="file" id="receipt-file" accept="image/*" class="hidden" onchange="handleReceiptUpload(this)" />
         <div id="receipt-preview" class="hidden">
@@ -127,10 +108,14 @@
       </div>
       <input type="hidden" id="f-receipt-url" />
 
+      <!-- Error message -->
+      <div id="modal-error" class="hidden"></div>
+
       <form id="expense-form" onsubmit="submitExpense(event)">
         <div class="form-group">
           <label>Title</label>
-          <input type="text" id="f-title" placeholder="e.g. Team lunch with product team" required />
+          <input type="text" id="f-title" placeholder="e.g. Work dinner, team lunch, flight to NYC…" required oninput="debouncedPreview()" />
+          <div id="ai-preview" class="hidden"></div>
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -142,9 +127,12 @@
             <input type="text" id="f-vendor" placeholder="e.g. Starbucks" required />
           </div>
         </div>
+        <div class="form-group">
+          <label>City / Location <span id="city-status"></span></label>
+          <input type="text" id="f-city" placeholder="e.g. San Francisco — or click the map" />
+        </div>
         <input type="hidden" id="f-lat" />
         <input type="hidden" id="f-lng" />
-        <input type="hidden" id="f-city" />
         <div id="form-actions">
           <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn-primary" id="submit-btn">
@@ -159,6 +147,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
   <script src="/static/auth.js"></script>
+  <script src="/static/nav.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

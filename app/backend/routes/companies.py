@@ -1,12 +1,60 @@
+from datetime import datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db, Company, User, InviteToken
-from auth import generate_invite_token
+from auth import generate_invite_token, hash_password, verify_password
 from deps import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/company", tags=["company"])
+
+
+# ── Profile ───────────────────────────────────────────────────────────────────
+
+class ProfileUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    current_password: Optional[str] = None
+    new_password: Optional[str] = Field(None, min_length=8)
+
+
+@router.get("/profile")
+def get_profile(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
+        "role": current_user.role,
+        "company_name": current_user.company.name if current_user.company else "",
+    }
+
+
+@router.put("/profile")
+def update_profile(
+    body: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if body.name:
+        current_user.name = body.name
+
+    if body.new_password:
+        if not body.current_password:
+            raise HTTPException(400, "Current password is required to set a new password")
+        if not current_user.hashed_password or not verify_password(body.current_password, current_user.hashed_password):
+            raise HTTPException(400, "Current password is incorrect")
+        current_user.hashed_password = hash_password(body.new_password)
+
+    db.commit()
+    db.refresh(current_user)
+    return {
+        "id": current_user.id,
+        "name": current_user.name,
+        "email": current_user.email,
+        "role": current_user.role,
+        "company_name": current_user.company.name if current_user.company else "",
+    }
 
 
 @router.get("/members")
@@ -39,6 +87,7 @@ def create_invite(
         token=token,
         company_id=current_user.company_id,
         role=body.role,
+        expires_at=datetime.utcnow() + timedelta(days=7),
         created_by=current_user.id,
     )
     db.add(invite)

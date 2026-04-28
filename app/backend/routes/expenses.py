@@ -6,7 +6,7 @@ from typing import Optional
 import anthropic
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db, Expense, User
@@ -27,22 +27,22 @@ def get_claude():
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class ExpenseCreate(BaseModel):
-    title: str
-    amount: float
-    vendor: str
-    latitude: float
-    longitude: float
-    city: str
+    title: str = Field(..., max_length=200)
+    amount: float = Field(..., gt=0, le=1_000_000)
+    vendor: str = Field(..., max_length=200)
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    city: str = Field(..., max_length=200)
     category: Optional[str] = None
     date: Optional[datetime] = None
     receipt_url: Optional[str] = None
 
 
 class ExpenseUpdate(BaseModel):
-    title: Optional[str] = None
-    amount: Optional[float] = None
-    vendor: Optional[str] = None
-    city: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=200)
+    amount: Optional[float] = Field(None, gt=0, le=1_000_000)
+    vendor: Optional[str] = Field(None, max_length=200)
+    city: Optional[str] = Field(None, max_length=200)
     category: Optional[str] = None
     date: Optional[datetime] = None
 
@@ -71,6 +71,48 @@ class ExpenseOut(BaseModel):
 
 # ── AI categorization ─────────────────────────────────────────────────────────
 
+CATEGORIZE_SYSTEM = """You are a business expense categorization expert with deep knowledge of IRS tax law.
+
+CATEGORIES — pick the single best fit:
+- Meals & Entertainment: any food/drink with a business purpose — client dinners, work lunches, team meals,
+  coffee meetings, happy hours, work dinners, offsite meals, catered events, food delivery for team
+- Travel: anything for a business trip — flights, hotels, Airbnb, car rentals, Uber/Lyft to/from airport,
+  train tickets, taxis for out-of-town trips, baggage fees, travel insurance
+- Transportation: local commuting costs — parking, tolls, subway/bus passes, local Uber/Lyft rides,
+  gas for business driving, bike share
+- Software & Tech: any digital tool — SaaS subscriptions, cloud hosting (AWS/GCP/Azure), software licenses,
+  domains, APIs, hardware (laptop, monitor, keyboard), phone bill if business use
+- Office Supplies: physical supplies — stationery, paper, printer ink/toner, office furniture,
+  whiteboard, notebooks, pens, cleaning supplies for office
+- Professional Development: investing in skills — conferences, courses, books, certifications,
+  workshops, seminars, coaching, industry memberships, professional associations
+- Other: anything that doesn't clearly fit the above
+
+BUSINESS LANGUAGE TO RECOGNIZE:
+- "work dinner / work lunch / work breakfast" → Meals & Entertainment
+- "team dinner / team lunch / team offsite" → Meals & Entertainment
+- "client dinner / client meeting / prospect lunch" → Meals & Entertainment
+- "offsite / company retreat" → Travel (if overnight) or Meals & Entertainment (if just food)
+- "flight / hotel / lodging / airfare" → Travel
+- "Uber / Lyft / taxi" → Travel (if airport/trip) or Transportation (if local)
+- "AWS / GCP / Azure / Vercel / Heroku" → Software & Tech
+- "Notion / Slack / Linear / Figma / GitHub / Zoom" → Software & Tech
+- "conference / summit / meetup" → Professional Development
+
+TAX DEDUCTIBILITY:
+- Meals & Entertainment: 50% deductible — ALWAYS mention the 50% limit in the note
+- Travel: 100% deductible for business trips — note "keep receipts and document business purpose"
+- Transportation: 100% deductible for business use
+- Software & Tech: 100% deductible
+- Office Supplies: 100% deductible
+- Professional Development: 100% deductible if directly related to current role
+
+The note should be one clear sentence: what it is, deductibility, and any important caveat.
+
+Return ONLY a raw JSON object, no markdown, no explanation:
+{"category": "...", "tax_deductible": true, "note": "..."}"""
+
+
 def ai_categorize(title: str, vendor: str, amount: float, city: str):
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -80,33 +122,18 @@ def ai_categorize(title: str, vendor: str, amount: float, city: str):
         response = client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=300,
-            system="""You are a business expense categorization expert with deep knowledge of IRS tax rules.
-
-Category definitions — pick the BEST fit:
-- Meals & Entertainment: restaurants, cafes, bars, food delivery, coffee, team lunches, client dinners
-- Travel: flights, hotels, Airbnb, car rentals, Uber/Lyft/taxi TO/FROM airports or for multi-day trips
-- Transportation: local parking, tolls, subway, bus, Uber/Lyft for short local trips (not airport runs)
-- Software & Tech: SaaS, subscriptions, cloud services (AWS/GCP/Azure), software licenses, APIs, domains, hardware
-- Office Supplies: stationery, paper, printer ink, office furniture, small equipment
-- Professional Development: conferences, courses, books, certifications, workshops, training
-- Other: anything that doesn't clearly fit above
-
-Tax rules:
-- Meals & Entertainment: 50% deductible — always note this
-- Travel & Transportation: 100% deductible when for business
-- Everything else: 100% deductible
-
-Return ONLY a raw JSON object — no markdown, no explanation, no code fences:
-{"category": "...", "tax_deductible": true, "note": "..."}""",
+            system=CATEGORIZE_SYSTEM,
             messages=[
                 {
                     "role": "user",
-                    "content": f"Title: {title}\nVendor: {vendor}\nAmount: ${amount:.2f}\nLocation: {city}",
+                    "content": f"Title: {title}\nVendor: {vendor or 'unknown'}\nAmount: ${amount:.2f}\nLocation: {city or 'unknown'}",
                 },
-                {"role": "assistant", "content": "{"},
             ],
         )
-        raw = "{" + response.content[0].text
+        raw = response.content[0].text
+        # Extract JSON from response (strip markdown fences if present)
+        start, end = raw.find("{"), raw.rfind("}") + 1
+        raw = raw[start:end] if start != -1 else raw
         result = json.loads(raw)
         return result.get("category", "Uncategorized"), result.get("tax_deductible", False), result.get("note")
     except Exception as e:
@@ -115,6 +142,25 @@ Return ONLY a raw JSON object — no markdown, no explanation, no code fences:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+class PreviewBody(BaseModel):
+    title: str
+    vendor: Optional[str] = ""
+    amount: Optional[float] = 0
+    city: Optional[str] = ""
+
+
+@router.post("/preview")
+def preview_category(
+    body: PreviewBody,
+    current_user: User = Depends(get_current_user),
+):
+    if not body.title.strip():
+        return {"category": None, "tax_deductible": None, "note": None}
+    category, tax_deductible, note = ai_categorize(
+        body.title, body.vendor or "", body.amount or 0, body.city or ""
+    )
+    return {"category": category, "tax_deductible": tax_deductible, "note": note}
 
 @router.get("", response_model=list[ExpenseOut])
 def list_expenses(
@@ -276,6 +322,27 @@ def delete_expense(
     db.delete(expense)
     db.commit()
     return {"ok": True}
+
+
+@router.patch("/{expense_id}/deductible")
+def set_deductible(
+    expense_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    expense = db.query(Expense).filter(
+        Expense.id == expense_id,
+        Expense.company_id == current_user.company_id,
+    ).first()
+    if not expense:
+        raise HTTPException(404, "Expense not found")
+    if expense.user_id != current_user.id and current_user.role not in ("owner", "admin"):
+        raise HTTPException(403, "Cannot edit another member's expense")
+    expense.tax_deductible = not expense.tax_deductible
+    if not expense.tax_deductible:
+        expense.ai_note = "Marked as personal — not tax deductible."
+    db.commit()
+    return {"ok": True, "tax_deductible": expense.tax_deductible}
 
 
 @router.patch("/{expense_id}/approve")

@@ -1,10 +1,11 @@
 import os
 import re
 import httpx
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 from database import get_db, User, Company, InviteToken
 from auth import (
@@ -87,7 +88,9 @@ def register(body: RegisterBody, db: Session = Depends(get_db)):
         ).first()
         if not invite:
             raise HTTPException(400, "Invalid or expired invite link")
-        company = db.query(Company).get(invite.company_id)
+        if invite.expires_at and invite.expires_at < datetime.utcnow():
+            raise HTTPException(400, "Invite link has expired")
+        company = db.query(Company).filter(Company.id == invite.company_id).first()
         role = invite.role
         invite.used = True
     else:

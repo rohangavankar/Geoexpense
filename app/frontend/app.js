@@ -1,3 +1,7 @@
+const esc = s => (s == null ? '' : String(s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;'));
+
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const NOMINATIM_HEADERS = { 'Accept-Language': 'en', 'User-Agent': 'GeoExpense/1.0' };
 
@@ -25,6 +29,7 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!Auth.requireAuth()) return;
 
   currentUser = Auth.getUser();
+  Nav.init('map');
   renderUserMenu();
 
   // Keyboard shortcut: N = add expense at map center
@@ -40,6 +45,15 @@ document.addEventListener('DOMContentLoaded', () => {
     clearTimeout(searchDebounce);
     if (q.length < 2) return hideResults();
     searchDebounce = setTimeout(() => runSearch(q), 400);
+  });
+
+  // City field: auto-geocode when manually typed
+  document.getElementById('f-city').addEventListener('input', () => {
+    clearTimeout(geocodeDebounce);
+    const city = document.getElementById('f-city').value.trim();
+    if (city.length > 2) {
+      geocodeDebounce = setTimeout(() => geocodeCity(city), 600);
+    }
   });
   input.addEventListener('keydown', e => { if (e.key === 'Escape') clearSearch(); });
   document.addEventListener('click', e => {
@@ -121,25 +135,104 @@ function dropPendingPin(lat, lng) {
   }).addTo(map);
 }
 
-function prefillCoords(lat, lng, address) {
+function prefillCoords(lat, lng, city) {
   document.getElementById('f-lat').value = lat;
   document.getElementById('f-lng').value = lng;
-  document.getElementById('f-city').value = '';
-  document.getElementById('modal-address').textContent = address;
+  if (city) document.getElementById('f-city').value = city;
+  clearModalError();
 }
 
 async function reverseGeocode(lat, lng) {
+  setCityStatus('📍 Detecting…');
   try {
     const res = await fetch(`${NOMINATIM}/reverse?lat=${lat}&lon=${lng}&format=json`, { headers: NOMINATIM_HEADERS });
     const data = await res.json();
     const addr = data.address || {};
     const city = addr.city || addr.town || addr.village || addr.county || data.display_name.split(',')[0];
     document.getElementById('f-city').value = city;
-    document.getElementById('modal-address').textContent = data.display_name || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    setCityStatus('✓');
   } catch {
-    const fallback = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-    document.getElementById('f-city').value = fallback;
-    document.getElementById('modal-address').textContent = fallback;
+    document.getElementById('f-city').value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    setCityStatus('');
+  }
+}
+
+let geocodeDebounce = null;
+let previewDebounce = null;
+async function geocodeCity(city) {
+  if (!city.trim()) return;
+  setCityStatus('🔍');
+  try {
+    const params = new URLSearchParams({ q: city, format: 'json', limit: 1, 'accept-language': 'en' });
+    const res = await fetch(`${NOMINATIM}/search?${params}`, { headers: NOMINATIM_HEADERS });
+    const results = await res.json();
+    if (results[0]) {
+      document.getElementById('f-lat').value = parseFloat(results[0].lat);
+      document.getElementById('f-lng').value = parseFloat(results[0].lon);
+      setCityStatus('✓');
+    } else {
+      setCityStatus('');
+    }
+  } catch {
+    setCityStatus('');
+  }
+}
+
+function setCityStatus(msg) {
+  document.getElementById('city-status').textContent = msg;
+}
+
+// ── Live AI category preview ──────────────────────────────────────────────────
+
+const CATEGORY_ICONS = {
+  'Meals & Entertainment': '🍽️',
+  'Travel': '✈️',
+  'Transportation': '🚗',
+  'Software & Tech': '💻',
+  'Office Supplies': '📦',
+  'Professional Development': '📚',
+  'Other': '📁',
+  'Uncategorized': '❓',
+};
+
+function debouncedPreview() {
+  clearTimeout(previewDebounce);
+  const title = document.getElementById('f-title').value.trim();
+  if (title.length < 3) {
+    document.getElementById('ai-preview').classList.add('hidden');
+    return;
+  }
+  document.getElementById('ai-preview').innerHTML = '<span class="preview-loading">✨ Analyzing…</span>';
+  document.getElementById('ai-preview').classList.remove('hidden');
+  previewDebounce = setTimeout(() => runPreview(title), 600);
+}
+
+async function runPreview(title) {
+  try {
+    const res = await Auth.apiFetch('/api/expenses/preview', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        vendor: document.getElementById('f-vendor').value,
+        amount: parseFloat(document.getElementById('f-amount').value) || 0,
+        city: document.getElementById('f-city').value,
+      }),
+    });
+    if (!res.ok) return;
+    const { category, tax_deductible, note } = await res.json();
+    if (!category) return;
+
+    const icon = CATEGORY_ICONS[category] || '📁';
+    const deductText = tax_deductible
+      ? '<span class="preview-deductible">✓ Tax deductible</span>'
+      : '<span class="preview-nondeductible">✗ Not deductible</span>';
+
+    document.getElementById('ai-preview').innerHTML = `
+      <div class="preview-category">${icon} ${category} ${deductText}</div>
+      ${note ? `<div class="preview-note">${note}</div>` : ''}
+    `;
+  } catch {
+    document.getElementById('ai-preview').classList.add('hidden');
   }
 }
 
@@ -175,8 +268,8 @@ function showResults(results) {
     return `<div class="search-result" onclick="selectResult(${i})">
       <span class="search-result-icon">${placeIcon(r.type, r.class)}</span>
       <div>
-        <div class="search-result-main">${main}</div>
-        <div class="search-result-sub">${formatSub(r)}</div>
+        <div class="search-result-main">${esc(main)}</div>
+        <div class="search-result-sub">${esc(formatSub(r))}</div>
       </div></div>`;
   }).join('');
   box.dataset.results = JSON.stringify(results);
@@ -230,7 +323,7 @@ window.addExpenseAtSearchPin = (lat, lng, placeName, address) => {
   document.getElementById('f-lat').value = lat;
   document.getElementById('f-lng').value = lng;
   document.getElementById('f-city').value = city;
-  document.getElementById('modal-address').textContent = address || placeName;
+  setCityStatus('✓');
   if (searchPin) searchPin.closePopup();
   openModal();
 };
@@ -281,20 +374,28 @@ function buildPopup(e) {
     : '';
 
   const aiNote = e.ai_note
-    ? `<div style="font-size:11px;color:#64748b;border-top:1px solid #f1f5f9;padding-top:8px;margin-top:8px;line-height:1.5"><span style="color:#7c3aed;font-weight:600">✨ AI:</span> ${e.ai_note}</div>`
+    ? `<div style="font-size:11px;color:#64748b;border-top:1px solid #f1f5f9;padding-top:8px;margin-top:8px;line-height:1.5"><span style="color:#7c3aed;font-weight:600">✨ AI:</span> ${esc(e.ai_note)}</div>`
     : '';
 
   const receipt = e.receipt_url
-    ? `<div style="margin-top:8px"><a href="${e.receipt_url}" target="_blank" style="font-size:11px;color:#6366f1">📎 View Receipt</a></div>`
+    ? `<div style="margin-top:8px"><a href="${esc(e.receipt_url)}" target="_blank" style="font-size:11px;color:#6366f1">📎 View Receipt</a></div>`
     : '';
 
   const submitter = e.submitter_name && e.submitter_name !== currentUser?.name
-    ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px">Submitted by ${e.submitter_name}</div>` : '';
+    ? `<div style="font-size:11px;color:#94a3b8;margin-top:4px">Submitted by ${esc(e.submitter_name)}</div>` : '';
+
+  const deductToggleLabel = e.tax_deductible ? '🚫 Mark as Personal' : '✓ Mark as Deductible';
+  const deductToggleStyle = e.tax_deductible
+    ? 'background:#fff7ed;border:1px solid #fed7aa;color:#9a3412'
+    : 'background:#f0fdf4;border:1px solid #bbf7d0;color:#166534';
 
   const actions = canEdit ? `
     <div style="display:flex;gap:8px;margin-top:10px">
       <button onclick="openEditModal(${e.id})" style="flex:1;background:#f1f5f9;border:1px solid #e2e8f0;color:#334155;padding:6px;border-radius:6px;font-size:12px;cursor:pointer">✏️ Edit</button>
       <button onclick="deleteExpense(${e.id})" style="flex:1;background:#fee2e2;border:1px solid #fecaca;color:#991b1b;padding:6px;border-radius:6px;font-size:12px;cursor:pointer">🗑 Delete</button>
+    </div>
+    <div style="margin-top:6px">
+      <button onclick="toggleDeductible(${e.id})" style="width:100%;${deductToggleStyle};padding:6px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600">${deductToggleLabel}</button>
     </div>` : '';
 
   const approvalActions = isAdmin && e.status === 'pending' ? `
@@ -304,10 +405,10 @@ function buildPopup(e) {
     </div>` : '';
 
   return `<div style="padding:14px;min-width:240px;font-family:-apple-system,sans-serif">
-    <div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:3px">${e.title}</div>
-    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">${e.vendor} · ${e.city}</div>
+    <div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:3px">${esc(e.title)}</div>
+    <div style="font-size:12px;color:#94a3b8;margin-bottom:8px">${esc(e.vendor)} · ${esc(e.city)}</div>
     <div style="font-size:22px;font-weight:700;color:#2563eb;margin-bottom:8px">$${e.amount.toFixed(2)}</div>
-    <span style="background:#eff6ff;color:#1d4ed8;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600">${e.category}</span>
+    <span style="background:#eff6ff;color:#1d4ed8;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600">${esc(e.category)}</span>
     <span style="margin-left:6px">${deductBadge}</span>${statusBadge}
     <div style="font-size:11px;color:#94a3b8;margin-top:8px">${date}</div>
     ${submitter}${receipt}${aiNote}${approvalActions}${actions}
@@ -326,9 +427,14 @@ async function loadExpenses() {
     Auth.apiFetch(`/api/expenses/summary?${params}`),
   ]);
 
-  if (!expRes.ok) return;
+  if (!expRes.ok) {
+    if (expRes.status === 401) Auth.logout();
+    return;
+  }
+  if (!sumRes.ok) return;
   const expenses = await expRes.json();
   const summary = await sumRes.json();
+  if (!Array.isArray(expenses)) { Auth.logout(); return; }
 
   expenseCache = Object.fromEntries(expenses.map(e => [e.id, e]));
 
@@ -375,7 +481,7 @@ function updateSidebar(expenses, summary) {
   document.getElementById('expense-list').innerHTML = expenses.map(e => {
     const date = new Date(e.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const statusDot = e.status === 'pending' ? '🟡 ' : e.status === 'rejected' ? '🔴 ' : '';
-    return `<div class="expense-item" onclick="flyTo(${e.id},${e.latitude},${e.longitude})">
+    return `<div class="expense-item" onclick="flyTo(${e.id})">
       <div class="expense-left">
         <div class="expense-title">${statusDot}${e.title}</div>
         <div class="expense-meta">${e.vendor} · ${date}</div>
@@ -387,19 +493,48 @@ function updateSidebar(expenses, summary) {
   }).join('');
 }
 
-function flyTo(id, lat, lng) {
-  map.flyTo([lat, lng], 14, { duration: 1.2 });
-  setTimeout(() => markers[id]?.openPopup(), 1300);
+function flyTo(id) {
+  const marker = markers[id];
+  if (!marker) return;
+  markerCluster.zoomToShowLayer(marker, () => marker.openPopup());
 }
 
 // ── Modal ─────────────────────────────────────────────────────────────────────
 
+function showModalError(msg) {
+  const el = document.getElementById('modal-error');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function clearModalError() {
+  document.getElementById('modal-error').classList.add('hidden');
+}
+
 function openModal() {
   editingId = null;
+  clearModalError();
+  setCityStatus('');
   document.getElementById('modal-title-text').textContent = 'Add Expense';
   document.getElementById('submit-text').textContent = '✨ Add with AI';
   document.getElementById('modal-overlay').classList.remove('hidden');
   setTimeout(() => document.getElementById('f-title').focus(), 50);
+}
+
+// FAB receipt button — file already picked, now open modal and scan
+async function handleFabReceipt(input) {
+  if (!input.files[0]) return;
+  const dt = new DataTransfer();
+  dt.items.add(input.files[0]);
+  document.getElementById('receipt-file').files = dt.files;
+  input.value = '';
+
+  document.getElementById('f-lat').value = '';
+  document.getElementById('f-lng').value = '';
+  document.getElementById('f-city').value = '';
+  openModal();
+
+  await handleReceiptUpload(document.getElementById('receipt-file'));
 }
 
 function openEditModal(id) {
@@ -415,7 +550,7 @@ function openEditModal(id) {
   document.getElementById('f-lat').value = e.latitude;
   document.getElementById('f-lng').value = e.longitude;
   document.getElementById('f-city').value = e.city;
-  document.getElementById('modal-address').textContent = e.city;
+  setCityStatus('✓');
 
   document.getElementById('modal-overlay').classList.remove('hidden');
   setTimeout(() => document.getElementById('f-title').focus(), 50);
@@ -427,6 +562,11 @@ function closeModal() {
   document.getElementById('receipt-preview').classList.add('hidden');
   document.getElementById('receipt-preview-img').src = '';
   document.getElementById('f-receipt-url').value = '';
+  document.getElementById('receipt-upload-btn').textContent = '📷 Scan Receipt';
+  document.getElementById('ai-preview').classList.add('hidden');
+  clearTimeout(previewDebounce);
+  clearModalError();
+  setCityStatus('');
   editingId = null;
   if (pendingMarker) { map.removeLayer(pendingMarker); pendingMarker = null; }
   if (searchPin) { map.removeLayer(searchPin); searchPin = null; }
@@ -434,6 +574,16 @@ function closeModal() {
 
 async function submitExpense(e) {
   e.preventDefault();
+  clearModalError();
+
+  const lat = parseFloat(document.getElementById('f-lat').value);
+  const lng = parseFloat(document.getElementById('f-lng').value);
+
+  if (isNaN(lat) || isNaN(lng)) {
+    showModalError('Please click on the map to select a location first.');
+    return;
+  }
+
   const btn = document.getElementById('submit-btn');
   const text = document.getElementById('submit-text');
   const spinner = document.getElementById('submit-spinner');
@@ -444,30 +594,33 @@ async function submitExpense(e) {
     amount: parseFloat(document.getElementById('f-amount').value),
     vendor: document.getElementById('f-vendor').value,
     city: document.getElementById('f-city').value || 'Unknown',
-    latitude: parseFloat(document.getElementById('f-lat').value),
-    longitude: parseFloat(document.getElementById('f-lng').value),
+    latitude: lat,
+    longitude: lng,
     receipt_url: document.getElementById('f-receipt-url').value || null,
   };
 
   try {
-    let res;
-    if (editingId) {
-      res = await Auth.apiFetch(`/api/expenses/${editingId}`, {
-        method: 'PUT', body: JSON.stringify(payload),
-      });
-    } else {
-      res = await Auth.apiFetch('/api/expenses', {
-        method: 'POST', body: JSON.stringify(payload),
-      });
-    }
+    const res = await Auth.apiFetch(
+      editingId ? `/api/expenses/${editingId}` : '/api/expenses',
+      { method: editingId ? 'PUT' : 'POST', body: JSON.stringify(payload) },
+    );
+
     if (res.ok) {
       closeModal();
       await loadExpenses();
       if (!editingId) {
         const newest = Object.values(expenseCache).sort((a, b) => b.id - a.id)[0];
-        if (newest) flyTo(newest.id, newest.latitude, newest.longitude);
+        if (newest) flyTo(newest.id);
       }
+    } else {
+      const err = await res.json().catch(() => ({}));
+      const msg = err.detail
+        ? (Array.isArray(err.detail) ? err.detail.map(d => d.msg).join(', ') : err.detail)
+        : `Error ${res.status} — please try again.`;
+      showModalError(msg);
     }
+  } catch (err) {
+    showModalError('Network error — check your connection.');
   } finally {
     btn.disabled = false; text.classList.remove('hidden'); spinner.classList.add('hidden');
   }
@@ -478,41 +631,63 @@ async function submitExpense(e) {
 async function handleReceiptUpload(input) {
   const file = input.files[0];
   if (!file) return;
+  clearModalError();
 
-  const preview = document.getElementById('receipt-preview');
   const img = document.getElementById('receipt-preview-img');
+  if (img.src) URL.revokeObjectURL(img.src);
   img.src = URL.createObjectURL(file);
-  preview.classList.remove('hidden');
+  document.getElementById('receipt-preview').classList.remove('hidden');
 
   const uploadBtn = document.getElementById('receipt-upload-btn');
-  uploadBtn.textContent = '⏳ Scanning…';
+  uploadBtn.textContent = '⏳ Scanning receipt…';
   uploadBtn.disabled = true;
 
   try {
     const form = new FormData();
     form.append('file', file);
     const res = await Auth.apiFetch('/api/receipts/extract', { method: 'POST', body: form });
-    if (res.ok) {
-      const { receipt_url, extracted } = await res.json();
-      document.getElementById('f-receipt-url').value = receipt_url;
-      if (extracted.vendor) document.getElementById('f-vendor').value = extracted.vendor;
-      if (extracted.amount) document.getElementById('f-amount').value = extracted.amount;
-      if (extracted.title) document.getElementById('f-title').value = extracted.title;
-      if (extracted.city) {
-        document.getElementById('f-city').value = extracted.city;
-        document.getElementById('modal-address').textContent = extracted.city;
-      }
-      uploadBtn.textContent = '✓ Receipt scanned';
+
+    if (!res.ok) {
+      showModalError('Receipt upload failed. Please try again.');
+      uploadBtn.textContent = '📷 Scan Receipt';
+      return;
+    }
+
+    const { receipt_url, extracted } = await res.json();
+    document.getElementById('f-receipt-url').value = receipt_url;
+
+    const filled = [];
+    if (extracted.title)  { document.getElementById('f-title').value  = extracted.title;  filled.push('title'); }
+    if (extracted.vendor) { document.getElementById('f-vendor').value = extracted.vendor; filled.push('vendor'); }
+    if (extracted.amount != null) { document.getElementById('f-amount').value = extracted.amount; filled.push('amount'); }
+    if (extracted.city) {
+      document.getElementById('f-city').value = extracted.city;
+      filled.push('city');
+      geocodeCity(extracted.city);  // auto-set lat/lng from the city
+    }
+
+    if (filled.length > 0) {
+      uploadBtn.textContent = `✓ Auto-filled: ${filled.join(', ')}`;
+    } else {
+      uploadBtn.textContent = '✓ Saved — fill in details below';
+      showModalError('Receipt saved but AI couldn\'t read it clearly — please fill in the details.');
     }
   } catch (err) {
-    uploadBtn.textContent = '📎 Upload Receipt';
-    console.error(err);
+    showModalError('Receipt scanning failed. Please fill in details manually.');
+    uploadBtn.textContent = '📷 Scan Receipt';
   } finally {
     uploadBtn.disabled = false;
+    // Reset so the same file can be re-selected
+    input.value = '';
   }
 }
 
 // ── Expense actions ───────────────────────────────────────────────────────────
+
+window.toggleDeductible = async (id) => {
+  const res = await Auth.apiFetch(`/api/expenses/${id}/deductible`, { method: 'PATCH' });
+  if (res.ok) { map.closePopup(); await loadExpenses(); }
+};
 
 window.deleteExpense = async (id) => {
   if (!confirm('Delete this expense?')) return;
@@ -570,7 +745,11 @@ async function copyInviteLink() {
   if (res.ok) {
     const { invite_token } = await res.json();
     const link = `${location.origin}/login?invite=${invite_token}`;
-    navigator.clipboard.writeText(link);
-    alert('Invite link copied to clipboard!');
+    try {
+      await navigator.clipboard.writeText(link);
+      alert('Invite link copied to clipboard!');
+    } catch {
+      prompt('Copy this invite link:', link);
+    }
   }
 }

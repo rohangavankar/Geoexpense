@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Approvals — GeoExpense</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="inner-page">
+  <nav id="nav"></nav>
+  <div class="page-wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h1 class="page-title" style="margin-bottom:0">Pending Approvals</h1>
+      <span id="pending-count" style="font-size:13px;color:#94a3b8"></span>
+    </div>
+
+    <div id="alert" class="hidden"></div>
+
+    <div class="card-section">
+      <div id="approvals-list"><p style="color:#94a3b8;font-size:13px">Loading…</p></div>
+    </div>
+
+    <div class="card-section" style="margin-top:20px">
+      <h3>Recently Actioned</h3>
+      <div id="recent-list"><p style="color:#94a3b8;font-size:13px">Loading…</p></div>
+    </div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script src="/static/nav.js"></script>
+  <script>
+    if (!Auth.requireAuth()) throw new Error('redirect');
+    Nav.init('approvals');
+
+    const currentUser = Auth.getUser();
+    if (!['owner','admin'].includes(currentUser?.role)) {
+      location.href = '/';
+    }
+
+    function showAlert(msg, type = 'success') {
+      const el = document.getElementById('alert');
+      el.className = type === 'success' ? 'alert-success' : 'alert-error';
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 4000);
+    }
+
+    function esc(s) {
+      return (s == null ? '' : String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'));
+    }
+
+    function fmtDate(d) {
+      return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function renderExpense(e, showActions) {
+      const category = `<span style="background:#eff6ff;color:#1d4ed8;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">${esc(e.category)}</span>`;
+      const deduct = e.tax_deductible
+        ? `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px">✓ Deductible</span>`
+        : `<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;margin-left:6px">✗ No</span>`;
+      const statusBadge = e.status === 'approved'
+        ? `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">✓ Approved</span>`
+        : e.status === 'rejected'
+        ? `<span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">✗ Rejected${e.rejection_note ? ': ' + esc(e.rejection_note) : ''}</span>`
+        : '';
+
+      const actions = showActions ? `
+        <div class="approval-actions">
+          <button class="btn-approve" onclick="approve(${e.id})">✓ Approve</button>
+          <button class="btn-reject" onclick="reject(${e.id})">✗ Reject</button>
+        </div>` : `<div class="approval-actions">${statusBadge}</div>`;
+
+      return `<div class="approval-row" id="row-${e.id}">
+        <div class="approval-info">
+          <div class="approval-title">${esc(e.title)}</div>
+          <div class="approval-meta">${esc(e.vendor)} · ${esc(e.city)} · ${fmtDate(e.date)}${e.submitter_name ? ` · Submitted by ${esc(e.submitter_name)}` : ''}</div>
+          <div style="margin-top:6px">${category}${deduct}</div>
+          ${e.ai_note ? `<div style="font-size:11px;color:#7c3aed;margin-top:4px">✨ ${esc(e.ai_note)}</div>` : ''}
+        </div>
+        <div class="approval-amount">$${e.amount.toFixed(2)}</div>
+        ${actions}
+      </div>`;
+    }
+
+    async function loadApprovals() {
+      const [pendingRes, recentRes] = await Promise.all([
+        Auth.apiFetch('/api/expenses?status=pending'),
+        Auth.apiFetch('/api/expenses?status=approved'),
+      ]);
+
+      const pending = pendingRes.ok ? await pendingRes.json() : [];
+      const recent = recentRes.ok ? await recentRes.json() : [];
+
+      document.getElementById('pending-count').textContent =
+        pending.length ? `${pending.length} awaiting review` : 'All caught up ✓';
+
+      const pendingList = document.getElementById('approvals-list');
+      pendingList.innerHTML = pending.length
+        ? pending.map(e => renderExpense(e, true)).join('')
+        : '<p style="color:#94a3b8;font-size:13px">No pending expenses — all caught up! ✓</p>';
+
+      const recentList = document.getElementById('recent-list');
+      const recentFiltered = recent.filter(e => e.status !== 'pending').slice(0, 10);
+      recentList.innerHTML = recentFiltered.length
+        ? recentFiltered.map(e => renderExpense(e, false)).join('')
+        : '<p style="color:#94a3b8;font-size:13px">No recent activity.</p>';
+    }
+
+    async function approve(id) {
+      const res = await Auth.apiFetch(`/api/expenses/${id}/approve`, { method: 'PATCH' });
+      if (res.ok) { showAlert('Expense approved.'); loadApprovals(); }
+      else showAlert('Failed to approve.', 'error');
+    }
+
+    async function reject(id) {
+      const note = prompt('Reason for rejection (optional):') || '';
+      const res = await Auth.apiFetch(`/api/expenses/${id}/reject`, {
+        method: 'PATCH',
+        body: JSON.stringify({ note }),
+      });
+      if (res.ok) { showAlert('Expense rejected.'); loadApprovals(); }
+      else showAlert('Failed to reject.', 'error');
+    }
+
+    loadApprovals();
+  </script>
+</body>
+</html>

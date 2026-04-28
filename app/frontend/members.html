@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Members — GeoExpense</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body class="inner-page">
+  <nav id="nav"></nav>
+  <div class="page-wrap">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+      <h1 class="page-title" style="margin-bottom:0">Team Members</h1>
+      <button class="btn-primary" onclick="inviteMember()">+ Invite Member</button>
+    </div>
+
+    <div id="alert" class="hidden"></div>
+
+    <div class="card-section">
+      <h3>Members</h3>
+      <div id="members-list"><p style="color:#94a3b8;font-size:13px">Loading…</p></div>
+    </div>
+
+    <div class="card-section">
+      <h3>About Roles</h3>
+      <div style="display:grid;gap:10px;font-size:13px">
+        <div><strong>Owner</strong> — Full access, billing, can change any role</div>
+        <div><strong>Admin</strong> — Can approve expenses, manage members, invite people</div>
+        <div><strong>Member</strong> — Can submit expenses, sees only their own</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/auth.js"></script>
+  <script src="/static/nav.js"></script>
+  <script>
+    if (!Auth.requireAuth()) throw new Error('redirect');
+    Nav.init('members');
+
+    const currentUser = Auth.getUser();
+    const isOwner = currentUser?.role === 'owner';
+
+    function showAlert(msg, type = 'success') {
+      const el = document.getElementById('alert');
+      el.className = type === 'success' ? 'alert-success' : 'alert-error';
+      el.textContent = msg;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 4000);
+    }
+
+    function esc(s) {
+      return (s == null ? '' : String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'));
+    }
+
+    async function loadMembers() {
+      const res = await Auth.apiFetch('/api/company/members');
+      if (!res.ok) return;
+      const members = await res.json();
+      const list = document.getElementById('members-list');
+
+      if (!members.length) {
+        list.innerHTML = '<p style="color:#94a3b8;font-size:13px">No members yet.</p>';
+        return;
+      }
+
+      list.innerHTML = members.map(m => {
+        const initial = esc(m.name.charAt(0).toUpperCase());
+        const isSelf = m.id === currentUser?.id;
+        const canEdit = isOwner && !isSelf;
+
+        const roleSelect = canEdit
+          ? `<select class="role-select" onchange="changeRole(${m.id}, this.value)">
+               <option value="owner" ${m.role === 'owner' ? 'selected' : ''}>Owner</option>
+               <option value="admin" ${m.role === 'admin' ? 'selected' : ''}>Admin</option>
+               <option value="member" ${m.role === 'member' ? 'selected' : ''}>Member</option>
+             </select>`
+          : `<span style="font-size:13px;color:#64748b;padding:5px 10px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0">${esc(m.role)}</span>`;
+
+        const removeBtn = canEdit
+          ? `<button class="btn-remove" onclick="removeMember(${m.id}, '${esc(m.name)}')">Remove</button>`
+          : '';
+
+        return `<div class="member-row">
+          <div class="member-avatar">${initial}</div>
+          <div class="member-info">
+            <div class="member-name">${esc(m.name)} ${isSelf ? '<span style="font-size:11px;color:#6366f1">(you)</span>' : ''}</div>
+            <div class="member-email">${esc(m.email)}</div>
+          </div>
+          ${roleSelect}
+          ${removeBtn}
+        </div>`;
+      }).join('');
+    }
+
+    async function changeRole(userId, role) {
+      const res = await Auth.apiFetch(`/api/company/members/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      });
+      if (res.ok) showAlert('Role updated.');
+      else showAlert('Failed to update role.', 'error');
+    }
+
+    async function removeMember(userId, name) {
+      if (!confirm(`Remove ${name} from your team?`)) return;
+      const res = await Auth.apiFetch(`/api/company/members/${userId}`, { method: 'DELETE' });
+      if (res.ok) { showAlert(`${name} removed.`); loadMembers(); }
+      else showAlert('Failed to remove member.', 'error');
+    }
+
+    async function inviteMember() {
+      const res = await Auth.apiFetch('/api/company/invite', {
+        method: 'POST',
+        body: JSON.stringify({ role: 'member' }),
+      });
+      if (res.ok) {
+        const { invite_token } = await res.json();
+        const link = `${location.origin}/login?invite=${invite_token}`;
+        try {
+          await navigator.clipboard.writeText(link);
+          showAlert('Invite link copied to clipboard! It expires in 7 days.');
+        } catch {
+          prompt('Copy this invite link (expires in 7 days):', link);
+        }
+      } else {
+        showAlert('Failed to generate invite link.', 'error');
+      }
+    }
+
+    loadMembers();
+  </script>
+</body>
+</html>
